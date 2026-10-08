@@ -280,8 +280,20 @@ function unitIdMap(unitFile: string, units: string[]): Map<string, string> {
     if (cells.length === 0) continue;
     const id = cells.flatMap((cell) => cell.match(/\bU\d+\b/gi) ?? [])[0]?.toUpperCase();
     if (!id) continue;
-    const unit = units.find((candidate) => cells.some((cell) => cell === candidate || cell === `\`${candidate}\``));
-    if (unit) map.set(unit, id);
+    const bare = cells.map((cell) => cell.replace(/^`(.*)`$/, "$1"));
+    const exact = units.find((candidate) => bare.includes(candidate));
+    if (exact) {
+      map.set(exact, id);
+      continue;
+    }
+    // A u{n}-<unit> Directory cell counts only beside its own U{n} ID cell.
+    const own = bare.find((cell) => /^U\d+$/i.test(cell))?.toUpperCase();
+    const derived = bare.flatMap((cell) => {
+      const directory = cell.match(/^u(\d+)-(.+)$/i);
+      return directory !== null && own === `U${directory[1]}` ? [directory[2]] : [];
+    });
+    const unit = units.find((candidate) => derived.includes(candidate));
+    if (unit && own) map.set(unit, own);
   }
   return map;
 }

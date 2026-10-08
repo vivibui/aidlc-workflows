@@ -390,6 +390,162 @@ describe("t281 upstream and target verification", () => {
       'NFR1: target "U2" is not mapped in unit-of-work-story-map.md',
     );
   });
+
+  test("a u{n}-<unit> Directory cell joins U{n} to the edge-block Unit name", () => {
+    const proj = project();
+    seedUserStories(proj);
+    write(proj, "inception/units-generation/unit-of-work.md", [
+      "# Units",
+      "",
+      "| Unit ID | Directory | Kind |",
+      "|---|---|---|",
+      "| U5 | u5-identity-kyc | service |",
+      "| U13 | `U13-ops-console` | service |",
+      "| U6 | u7-auth-mfa | service |",
+      "| u8-ledger | U9 | service |",
+      "| u10-cards | | service |",
+    ].join("\n"));
+    write(proj, "inception/units-generation/unit-of-work-dependency.md", [
+      "# Dependencies",
+      "",
+      "```yaml",
+      "units:",
+      "  - name: identity-kyc",
+      "    kind: service",
+      "    depends_on: []",
+      "  - name: ops-console",
+      "    kind: service",
+      "    depends_on: [identity-kyc]",
+      "  - name: auth-mfa",
+      "    kind: service",
+      "    depends_on: [identity-kyc]",
+      "  - name: ledger",
+      "    kind: service",
+      "    depends_on: []",
+      "  - name: cards",
+      "    kind: service",
+      "    depends_on: []",
+      "```",
+    ].join("\n"));
+    write(proj, "inception/units-generation/unit-of-work-story-map.md", [
+      "# Story Map",
+      "",
+      "| Story | Implementing Unit(s) | Directory |",
+      "|---|---|---|",
+      "| US1.1 | U5 | u5-identity-kyc |",
+      "| US1.2 | U13 | u13-ops-console |",
+    ].join("\n"));
+    const file = trace(proj, "inception/units-generation/traceability.json", {
+      stage: "units-generation",
+      upstream_ids: ["US1.1", "US1.2"],
+      coverage: [
+        { id: "US1.1", status: "OK", target: "U5" },
+        { id: "US1.2", status: "OK", target: "U13" },
+      ],
+    });
+    let out = run(proj, "units-generation", file);
+    expect(out.result.invalid_targets).toEqual([]);
+    expect(out.result.gaps).toEqual([]);
+    expect(out.result.pass).toBe(true);
+
+    trace(proj, "inception/units-generation/traceability.json", {
+      stage: "units-generation",
+      upstream_ids: ["US1.1", "US1.2"],
+      coverage: [
+        { id: "US1.1", status: "OK", target: "U5" },
+        { id: "US1.2", status: "OK", target: "U6" },
+      ],
+    });
+    out = run(proj, "units-generation", file);
+    expect(out.result.invalid_targets).toContain('US1.2: target "U6" is not a declared unit');
+
+    // A u{n}- cell beside another ID, or with no ID cell, maps nothing.
+    for (const target of ["U8", "U9", "U10"]) {
+      trace(proj, "inception/units-generation/traceability.json", {
+        stage: "units-generation",
+        upstream_ids: ["US1.1", "US1.2"],
+        coverage: [
+          { id: "US1.1", status: "OK", target: "U5" },
+          { id: "US1.2", status: "OK", target },
+        ],
+      });
+      out = run(proj, "units-generation", file);
+      expect(out.result.invalid_targets).toContain(`US1.2: target "${target}" is not a declared unit`);
+    }
+
+    write(proj, "construction/identity-kyc/functional-design/rules.md", [
+      "# Rules",
+      "",
+      "## Registration",
+      "- BR1.1 Validate credentials",
+      "- BR1.2 Rate-limit failures",
+    ].join("\n"));
+    const design = trace(proj, "construction/identity-kyc/functional-design/traceability.json", {
+      stage: "functional-design",
+      unit: "identity-kyc",
+      upstream_ids: ["AC1.1.1", "AC1.1.2"],
+      coverage: [
+        { id: "AC1.1.1", status: "OK", target: "BR1.1" },
+        { id: "AC1.1.2", status: "OK", target: "BR1.2" },
+      ],
+    });
+    out = run(proj, "functional-design", design);
+    expect(out.result.reason).toBeUndefined();
+    expect(out.result.pass).toBe(true);
+  });
+
+  test("an exact Unit name wins over a u{n}-<unit> Directory match", () => {
+    const proj = project();
+    seedUserStories(proj);
+    write(proj, "inception/units-generation/unit-of-work.md", [
+      "# Units",
+      "",
+      "| Unit ID | Directory | Kind |",
+      "|---|---|---|",
+      "| U5 | u5-identity-kyc | service |",
+      "| U6 | identity-kyc | service |",
+    ].join("\n"));
+    write(proj, "inception/units-generation/unit-of-work-dependency.md", [
+      "# Dependencies",
+      "",
+      "```yaml",
+      "units:",
+      "  - name: identity-kyc",
+      "    kind: service",
+      "    depends_on: []",
+      "  - name: u5-identity-kyc",
+      "    kind: service",
+      "    depends_on: []",
+      "```",
+    ].join("\n"));
+    write(proj, "inception/units-generation/unit-of-work-story-map.md", [
+      "# Story Map",
+      "",
+      "| Story | Implementing Unit(s) |",
+      "|---|---|",
+      "| US1.1 | U5 |",
+      "| US1.2 | U6 |",
+    ].join("\n"));
+    write(proj, "construction/u5-identity-kyc/functional-design/rules.md", [
+      "# Rules",
+      "",
+      "## Registration",
+      "- BR1.1 Validate credentials",
+      "- BR1.2 Rate-limit failures",
+    ].join("\n"));
+    const design = trace(proj, "construction/u5-identity-kyc/functional-design/traceability.json", {
+      stage: "functional-design",
+      unit: "u5-identity-kyc",
+      upstream_ids: ["AC1.1.1", "AC1.1.2"],
+      coverage: [
+        { id: "AC1.1.1", status: "OK", target: "BR1.1" },
+        { id: "AC1.1.2", status: "OK", target: "BR1.2" },
+      ],
+    });
+    const out = run(proj, "functional-design", design);
+    expect(out.result.reason).toBeUndefined();
+    expect(out.result.pass).toBe(true);
+  });
 });
 
 describe("t281 per-Unit scope, reverse derivation, and code targets", () => {
